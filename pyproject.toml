@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kafkadedup"
+version = "0.1.0"
+description = "Kafka message deduplication and idempotency framework"
+requires-python = ">=3.11"
+dependencies = [
+    "aiokafka>=0.10.0",
+    "redis[hiredis]>=5.0.0",
+    "asyncpg>=0.29.0",
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "prometheus-client>=0.20.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-instrumentation-redis>=0.45b0",
+    "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "testcontainers[kafka,redis,postgresql]>=4.5.0",
+    "fakeredis[aioredis]>=2.23.0",
+    "lupa>=2.1",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "types-redis",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# Default run: unit + chaos tests only (no Docker required).
+# Run integration/e2e separately:
+#   pytest tests/integration -m integration -v
+#   pytest tests/e2e         -m e2e         -v
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=85 --cov-config=pyproject.toml -m 'not integration and not e2e'"
+markers = [
+    "integration: requires real Docker containers (Redis, Kafka, Postgres)",
+    "chaos: fault-injection and resilience tests (no Docker needed)",
+    "e2e: full-stack tests requiring all services",
+]
+
+[tool.coverage.run]
+omit = [
+    "src/consumer/handlers/*.py",   # user-owned business logic stubs
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

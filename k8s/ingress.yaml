@@ -1,0 +1,32 @@
+# nginx Ingress for the health + metrics API.
+# Replace dedup.example.com with your actual domain.
+# TLS certificate is managed by cert-manager (https://cert-manager.io).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kafkadedup-api
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    app.kubernetes.io/component: api
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # cert-manager auto-provisions a TLS cert for the host below
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - dedup.example.com          # ← replace with your domain
+      secretName: kafkadedup-tls
+  rules:
+    - host: dedup.example.com        # ← replace with your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kafkadedup-api
+                port:
+                  name: http

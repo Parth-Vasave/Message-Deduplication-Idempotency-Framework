@@ -1,0 +1,25 @@
+# Prometheus ServiceMonitor — used by kube-prometheus-stack to auto-discover
+# scrape targets.  If you're not using the Prometheus Operator, delete this
+# file and rely on the prometheus.io/scrape pod annotations instead.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafkadedup
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    # Must match your Prometheus Operator's serviceMonitorSelector labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafkadedup
+      app.kubernetes.io/component: api
+  namespaceSelector:
+    matchNames:
+      - kafkadedup
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

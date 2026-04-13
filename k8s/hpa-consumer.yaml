@@ -1,0 +1,44 @@
+# CPU-based autoscaler for the consumer deployment.
+#
+# For production, replace this with a KEDA ScaledObject that scales on
+# Kafka consumer-group lag — that gives a much tighter signal:
+#   https://keda.sh/docs/scalers/apache-kafka/
+#
+# Hard ceiling: number of Kafka partitions on your topic.
+# Setting maxReplicas above that wastes pods (Kafka won't assign work to them).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kafkadedup-consumer
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    app.kubernetes.io/component: consumer
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kafkadedup-consumer
+  minReplicas: 2
+  maxReplicas: 12   # set to your Kafka topic partition count
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      # Be conservative scaling down — a rebalancing consumer drops messages
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30

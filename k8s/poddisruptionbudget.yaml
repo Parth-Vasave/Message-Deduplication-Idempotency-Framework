@@ -1,0 +1,32 @@
+# Keep at least 1 API replica available during node drains / rollouts.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafkadedup-api
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafkadedup
+      app.kubernetes.io/component: api
+---
+# Consumer PDB — allow at most 1 pod disrupted at a time so the remaining
+# pods can absorb the partition rebalance gracefully.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafkadedup-consumer
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    app.kubernetes.io/component: consumer
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafkadedup
+      app.kubernetes.io/component: consumer

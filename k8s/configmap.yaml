@@ -1,0 +1,21 @@
+# Non-sensitive configuration shared by the API and consumer.
+# Sensitive values (URLs with credentials) live in secret.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafkadedup-config
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+data:
+  # Kafka
+  KAFKA_GROUP_ID: "dedup-consumer-group"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-broker:9092"   # replace with your broker address
+
+  # Deduplication
+  DEDUP_TTL_SECONDS: "86400"       # 24 h
+  DEDUP_MAX_RETRIES: "3"
+  DEDUP_RETRY_BACKOFF_MS: "500"
+
+  # Observability
+  LOG_LEVEL: "INFO"

@@ -1,0 +1,89 @@
+# DedupConsumer — Kafka consumer with deduplication lifecycle.
+#
+# Scaling notes:
+#   - One pod per Kafka partition is the maximum useful replica count.
+#   - Horizontal scaling is managed by hpa-consumer.yaml (CPU-based by default).
+#   - For lag-based autoscaling, replace the HPA with a KEDA ScaledObject.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafkadedup-consumer
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    app.kubernetes.io/component: consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafkadedup
+      app.kubernetes.io/component: consumer
+  strategy:
+    # Recreate avoids two consumer groups holding the same partition
+    # during a rolling update; use RollingUpdate only if your Kafka
+    # topic has enough partitions to absorb concurrent consumers.
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafkadedup
+        app.kubernetes.io/component: consumer
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: kafkadedup
+      # Allow enough time for in-flight messages to complete before SIGTERM kills the pod
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: consumer
+          image: ghcr.io/YOUR_ORG/kafkadedup:latest
+          imagePullPolicy: Always
+          # Override the default CMD (API server) to run the consumer
+          command:
+            - python
+            - -m
+            - src.consumer.dedup_consumer
+          envFrom:
+            - configMapRef:
+                name: kafkadedup-config
+            - secretRef:
+                name: kafkadedup-secrets
+          # Expose the metrics sidecar port so Prometheus can scrape the consumer too
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            # The consumer doesn't have an HTTP endpoint by default.
+            # Use an exec probe that checks whether the Python process is alive.
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      imagePullSecrets:
+        - name: ghcr-creds

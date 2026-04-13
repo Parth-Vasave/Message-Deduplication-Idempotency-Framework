@@ -1,0 +1,306 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
+  ],
+  "annotations": {"list": []},
+  "description": "Kafka message deduplication framework — throughput, duplicate rates, latency, DLQ and store operations",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100,
+      "title": "Overview",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 0.05},
+            {"color": "red",    "value": 0.10}
+          ]},
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "Duplicate Rate",
+      "type": "stat",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(rate(dedup_messages_total{status=\"duplicate\"}[5m])) / sum(rate(dedup_messages_total[5m]))",
+        "legendFormat": "duplicate %",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "red",   "value": 1}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "DLQ Messages / 5m",
+      "type": "stat",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(increase(dedup_dlq_messages_total[5m]))",
+        "legendFormat": "dlq",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green",  "value": null},
+            {"color": "yellow", "value": 0.5},
+            {"color": "red",    "value": 2.0}
+          ]},
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "id": 3,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "Processing p95",
+      "type": "stat",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "histogram_quantile(0.95, sum(rate(dedup_processing_duration_seconds_bucket[5m])) by (le))",
+        "legendFormat": "p95",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "Active Processing",
+      "type": "stat",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(dedup_active_processing)",
+        "legendFormat": "active",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 101,
+      "title": "Throughput",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "duplicate"}, "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "processed"},  "properties": [{"id": "color", "value": {"fixedColor": "green",  "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "dlq"},        "properties": [{"id": "color", "value": {"fixedColor": "red",    "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "failed"},     "properties": [{"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}]}
+        ]
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 10,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "Message Rate by Status",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(rate(dedup_messages_total[5m])) by (status)",
+        "legendFormat": "{{status}}",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit", "min": 0, "max": 1},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 11,
+      "options": {"legend": {"calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "Duplicate Rate by Topic",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(rate(dedup_messages_total{status=\"duplicate\"}[5m])) by (topic) / sum(rate(dedup_messages_total[5m])) by (topic)",
+        "legendFormat": "{{topic}}",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "id": 102,
+      "title": "Latency",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "id": 20,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "Processing Duration Percentiles (all topics)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "expr": "histogram_quantile(0.50, sum(rate(dedup_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "expr": "histogram_quantile(0.95, sum(rate(dedup_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "expr": "histogram_quantile(0.99, sum(rate(dedup_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "id": 21,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "Redis Store Operation Latency p99 by Operation",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "histogram_quantile(0.99, sum(rate(dedup_store_operation_duration_seconds_bucket[5m])) by (le, operation))",
+        "legendFormat": "{{operation}}",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+      "id": 103,
+      "title": "Errors & DLQ",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 30,
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "DLQ Message Rate by Topic",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(rate(dedup_dlq_messages_total[5m])) by (topic)",
+        "legendFormat": "{{topic}}",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 31,
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "Consumer Errors by Type",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(rate(dedup_consumer_errors_total[5m])) by (topic, error_type)",
+        "legendFormat": "{{topic}} / {{error_type}}",
+        "refId": "A"
+      }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32},
+      "id": 104,
+      "title": "Retries",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 33},
+      "id": 40,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "title": "Retry Rate by Topic",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "expr": "sum(rate(dedup_retry_attempts_total[5m])) by (topic)",
+        "legendFormat": "{{topic}}",
+        "refId": "A"
+      }]
+    }
+
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["kafka", "deduplication", "idempotency"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Kafka Deduplication Framework",
+  "uid": "kafkadedup-v1",
+  "version": 1
+}

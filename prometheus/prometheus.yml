@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    app: kafkadedup
+    env: local
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  # The dedup consumer / metrics API
+  - job_name: kafkadedup
+    static_configs:
+      - targets:
+          - dedup-api:9090
+    metrics_path: /metrics
+
+  # Prometheus self-scrape
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090

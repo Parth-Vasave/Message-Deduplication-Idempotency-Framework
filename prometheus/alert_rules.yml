@@ -1,0 +1,108 @@
+groups:
+  - name: kafkadedup
+    interval: 60s
+    rules:
+
+      # -----------------------------------------------------------------------
+      # Duplicate rate alert
+      # -----------------------------------------------------------------------
+      - alert: HighDuplicateRate
+        expr: |
+          (
+            sum(rate(dedup_messages_total{status="duplicate"}[5m])) by (topic)
+            /
+            sum(rate(dedup_messages_total[5m])) by (topic)
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High duplicate message rate on topic {{ $labels.topic }}"
+          description: >
+            More than 10% of messages on topic {{ $labels.topic }} are duplicates
+            over the last 5 minutes. Current rate: {{ $value | humanizePercentage }}.
+            This may indicate upstream producer retries or a misbehaving publisher.
+
+      # -----------------------------------------------------------------------
+      # DLQ messages accumulating
+      # -----------------------------------------------------------------------
+      - alert: DLQMessagesIncreasing
+        expr: |
+          rate(dedup_dlq_messages_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Messages are being sent to DLQ on topic {{ $labels.topic }}"
+          description: >
+            Messages on topic {{ $labels.topic }} are being routed to the Dead
+            Letter Queue at {{ $value | humanize }}/s. This means handlers are
+            failing after all retry attempts — investigate handler errors.
+
+      # -----------------------------------------------------------------------
+      # Processing latency
+      # -----------------------------------------------------------------------
+      - alert: HighProcessingLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(dedup_processing_duration_seconds_bucket[5m])) by (le, topic)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow message processing on topic {{ $labels.topic }}"
+          description: >
+            p95 processing time on topic {{ $labels.topic }} has exceeded 2s
+            for the last 5 minutes. Current p95: {{ $value | humanizeDuration }}.
+
+      # -----------------------------------------------------------------------
+      # Redis store operation latency
+      # -----------------------------------------------------------------------
+      - alert: HighStoreOperationLatency
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(dedup_store_operation_duration_seconds_bucket[5m])) by (le, operation)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow Redis dedup store operation: {{ $labels.operation }}"
+          description: >
+            p99 latency for Redis operation {{ $labels.operation }} has exceeded
+            500ms. Current p99: {{ $value | humanizeDuration }}.
+            Check Redis memory pressure or network latency.
+
+      # -----------------------------------------------------------------------
+      # Consumer error spike
+      # -----------------------------------------------------------------------
+      - alert: ConsumerErrorSpike
+        expr: |
+          sum(rate(dedup_consumer_errors_total[5m])) by (topic, error_type) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Consumer errors spiking on topic {{ $labels.topic }}"
+          description: >
+            Error type {{ $labels.error_type }} is occurring at
+            {{ $value | humanize }}/s on topic {{ $labels.topic }}.
+
+      # -----------------------------------------------------------------------
+      # No messages being processed (consumer stall)
+      # -----------------------------------------------------------------------
+      - alert: ConsumerStalled
+        expr: |
+          sum(rate(dedup_messages_total[10m])) by (topic) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No messages processed on topic {{ $labels.topic }} for 10m"
+          description: >
+            The dedup consumer has not processed any messages on topic
+            {{ $labels.topic }} for the last 10 minutes.
+            The consumer may be down or the topic may be empty.

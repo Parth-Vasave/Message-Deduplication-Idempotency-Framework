@@ -1,0 +1,13 @@
+# ServiceAccount used by both the API and consumer pods.
+# Extend with IAM annotations (EKS IRSA / GKE Workload Identity) if your
+# Redis / Kafka / Postgres credentials come from a cloud secrets manager.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafkadedup
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+  # EKS IRSA example — uncomment and fill in:
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/kafkadedup-role

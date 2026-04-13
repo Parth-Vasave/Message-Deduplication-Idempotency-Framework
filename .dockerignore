@@ -1,0 +1,37 @@
+# Version control
+.git
+.gitignore
+
+# Python artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+dist
+build
+.venv
+venv
+*.egg
+
+# Tests (not needed in the image)
+tests/
+conftest.py
+
+# Dev tooling
+.ruff_cache
+.mypy_cache
+.pytest_cache
+.coverage
+htmlcov/
+
+# Infra / docs (not needed in the image)
+k8s/
+prometheus/
+grafana/
+.github/
+scripts/
+docker-compose.yml
+
+# OS
+.DS_Store
+*.swp

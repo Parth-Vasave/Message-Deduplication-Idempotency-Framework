@@ -1,0 +1,80 @@
+# FastAPI metrics + health API — stateless, scales horizontally.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafkadedup-api
+  namespace: kafkadedup
+  labels:
+    app.kubernetes.io/name: kafkadedup
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafkadedup
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafkadedup
+        app.kubernetes.io/component: api
+      annotations:
+        # Prometheus pod scraping (if not using ServiceMonitor)
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: kafkadedup
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          # Image is updated by the CD workflow via `kubectl set image`
+          image: ghcr.io/YOUR_ORG/kafkadedup:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: kafkadedup-config
+            - secretRef:
+                name: kafkadedup-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      # Pull private image from GHCR
+      # Create with: kubectl create secret docker-registry ghcr-creds ...
+      imagePullSecrets:
+        - name: ghcr-creds
