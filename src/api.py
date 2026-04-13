@@ -40,7 +40,7 @@ async def ready() -> JSONResponse:
     try:
         client = aioredis.from_url(settings.redis_url, socket_connect_timeout=2)
         await client.ping()
-        await client.aclose()
+        await client.close()
         return JSONResponse({"status": "ready", "redis": "ok"})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(

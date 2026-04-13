@@ -39,7 +39,7 @@ def _extract_message_id(record: ConsumerRecord) -> str | None:
     """
     for key, value in record.headers or []:
         if key == "X-Message-Id" and value:
-            return value.decode()
+            return str(value.decode())
 
     # Attempt JSON decode — callers can override _parse_payload for other formats
     import json
@@ -49,7 +49,8 @@ def _extract_message_id(record: ConsumerRecord) -> str | None:
     try:
         payload = json.loads(record.value)
         if isinstance(payload, dict):
-            return payload.get("message_id") or payload.get("id")
+            mid = payload.get("message_id") or payload.get("id")
+            return str(mid) if mid else None
     except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
         pass
 
@@ -114,7 +115,7 @@ class DedupConsumer(BaseConsumer):
             self._dlq_producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
             await self._dlq_producer.start()
 
-        await self._store.connect() if hasattr(self._store, "connect") else None  # type: ignore[attr-defined]
+        await self._store.connect() if hasattr(self._store, "connect") else None
         self._running = True
         logger.info("DedupConsumer started topics=%s group=%s", self._topics, self._group_id)
 

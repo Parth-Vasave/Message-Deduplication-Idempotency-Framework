@@ -129,4 +129,4 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
         log = get_logger(__name__)
         log.info("claim_won", message_id=mid, topic=topic)
     """
-    return structlog.get_logger(name)  # type: ignore[return-value]
+    return structlog.get_logger(name)  # type: ignore[no-any-return]

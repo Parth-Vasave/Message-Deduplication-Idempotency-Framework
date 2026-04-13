@@ -68,7 +68,7 @@ class RedisDeduplicationStore(DeduplicationStore):
         await store.close()
     """
 
-    def __init__(self, client: Redis, config: DeduplicationConfig | None = None) -> None:
+    def __init__(self, client: "Redis[Any]", config: DeduplicationConfig | None = None) -> None:
         self._client = client
         self._config = config or DeduplicationConfig()
 
@@ -83,7 +83,7 @@ class RedisDeduplicationStore(DeduplicationStore):
         config: DeduplicationConfig | None = None,
         **redis_kwargs: Any,
     ) -> "RedisDeduplicationStore":
-        client: Redis = aioredis.from_url(url, decode_responses=True, **redis_kwargs)
+        client: "Redis[Any]" = aioredis.from_url(url, decode_responses=True, **redis_kwargs)
         return cls(client, config)
 
     async def connect(self) -> None:
@@ -159,7 +159,7 @@ class RedisDeduplicationStore(DeduplicationStore):
         await self._client.delete(_redis_key(message_id))
 
     async def close(self) -> None:
-        await self._client.aclose()
+        await self._client.close()
         logger.info("RedisDeduplicationStore closed")
 
     # ------------------------------------------------------------------
@@ -177,7 +177,7 @@ class RedisDeduplicationStore(DeduplicationStore):
     ) -> Any:
         # Use EVAL directly — avoids EVALSHA/register_script which some
         # Redis-compatible clients (fakeredis, certain proxies) don't support.
-        return await self._client.eval(
+        return await self._client.eval(  # type: ignore[no-untyped-call]
             _LUA_UPDATE_STATUS,
             1,  # number of keys
             _redis_key(message_id),
