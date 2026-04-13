@@ -6,6 +6,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 jobs:
   lint:
@@ -49,6 +50,7 @@ jobs:
       - name: Run unit + chaos tests
         run: |
           pytest tests/unit tests/chaos \
+            -m "not integration and not e2e" \
             --cov=src \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
