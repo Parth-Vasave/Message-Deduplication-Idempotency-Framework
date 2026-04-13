@@ -125,8 +125,6 @@ class TestDedupConsumerIntegration:
         """
         A handler that always raises should exhaust retries and send to DLQ.
         """
-        dlq_received: list[bytes] = []
-
         class _FailingConsumer(DedupConsumer):
             async def handle(self, message: Any) -> Any:
                 raise RuntimeError("intentional failure")
@@ -167,7 +165,7 @@ class TestDedupConsumerIntegration:
                 return False
 
             found = await asyncio.wait_for(_scan(), timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         finally:
             await dlq_c.stop()
