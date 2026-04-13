@@ -125,6 +125,7 @@ class TestDedupConsumerIntegration:
         """
         A handler that always raises should exhaust retries and send to DLQ.
         """
+
         class _FailingConsumer(DedupConsumer):
             async def handle(self, message: Any) -> Any:
                 raise RuntimeError("intentional failure")
@@ -157,6 +158,7 @@ class TestDedupConsumerIntegration:
         await dlq_c.start()
         found = False
         try:
+
             async def _scan() -> bool:
                 async for record in dlq_c:
                     payload = json.loads(record.value)
