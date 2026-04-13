@@ -54,6 +54,8 @@ markers = [
 [tool.coverage.run]
 omit = [
     "src/consumer/handlers/*.py",   # user-owned business logic stubs
+    "src/api.py",                   # FastAPI app — requires live services
+    "src/logging_config.py",        # structlog setup — no unit-testable logic
 ]
 
 [tool.ruff]

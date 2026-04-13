@@ -154,21 +154,25 @@ class TestDedupConsumerIntegration:
             bootstrap_servers=kafka_bootstrap,
             group_id="integration-dlq-verifier",
             auto_offset_reset="earliest",
-            enable_auto_commit=True,
+            enable_auto_commit=False,
         )
         await dlq_c.start()
+        found = False
         try:
-            async for record in dlq_c:
-                dlq_received.append(record.value)
-                break
-        except TimeoutError:
+            async def _scan() -> bool:
+                async for record in dlq_c:
+                    payload = json.loads(record.value)
+                    if "dlq-msg-1" in payload.get("original_value", ""):
+                        return True
+                return False
+
+            found = await asyncio.wait_for(_scan(), timeout=10.0)
+        except asyncio.TimeoutError:
             pass
         finally:
             await dlq_c.stop()
 
-        assert len(dlq_received) >= 1
-        dlq_payload = json.loads(dlq_received[0])
-        assert "dlq-msg-1" in dlq_payload.get("original_value", "")
+        assert found, "dlq-msg-1 not found in DLQ"
 
     async def test_consumer_survives_restart(self, kafka_bootstrap, redis_store):
         """
