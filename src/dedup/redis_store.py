@@ -12,7 +12,7 @@ concurrent retries.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -54,7 +54,7 @@ def _redis_key(message_id: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class RedisDeduplicationStore(DeduplicationStore):
@@ -103,15 +103,17 @@ class RedisDeduplicationStore(DeduplicationStore):
         """
         key = _redis_key(message_id)
         now = _now_iso()
-        record = json.dumps({
-            "message_id": message_id,
-            "status":     StatusValue.PROCESSING,
-            "attempts":   1,
-            "result":     None,
-            "error":      None,
-            "created_at": now,
-            "updated_at": now,
-        })
+        record = json.dumps(
+            {
+                "message_id": message_id,
+                "status": StatusValue.PROCESSING,
+                "attempts": 1,
+                "result": None,
+                "error": None,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
         # SET key value NX PX milliseconds — atomic, no race condition
         ttl_ms = self._config.ttl_seconds * 1000
         claimed = await self._client.set(key, record, nx=True, px=ttl_ms)
@@ -136,9 +138,7 @@ class RedisDeduplicationStore(DeduplicationStore):
         )
         self._check_script_return(message_id, ret, "mark_completed")
 
-    async def mark_failed(
-        self, message_id: str, error: str, attempts: int = 1
-    ) -> None:
+    async def mark_failed(self, message_id: str, error: str, attempts: int = 1) -> None:
         ret = await self._run_update_script(
             message_id,
             status=StatusValue.FAILED,
@@ -181,17 +181,20 @@ class RedisDeduplicationStore(DeduplicationStore):
             _LUA_UPDATE_STATUS,
             1,  # number of keys
             _redis_key(message_id),
-            status, _now_iso(), result_json, error, attempts,
+            status,
+            _now_iso(),
+            result_json,
+            error,
+            attempts,
         )
 
     @staticmethod
     def _check_script_return(message_id: str, ret: Any, operation: str) -> None:
         if ret == -1:
-            logger.warning(
-                "%s: key not found (expired?) message_id=%s", operation, message_id
-            )
+            logger.warning("%s: key not found (expired?) message_id=%s", operation, message_id)
         elif ret == 0:
             logger.warning(
                 "%s: status already terminal, skipped message_id=%s",
-                operation, message_id,
+                operation,
+                message_id,
             )

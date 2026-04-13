@@ -32,7 +32,7 @@ Schema (see scripts/init_db.sql for DDL):
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -53,7 +53,7 @@ class OutboxEntry(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if self.created_at is None:
-            object.__setattr__(self, "created_at", datetime.now(timezone.utc))
+            object.__setattr__(self, "created_at", datetime.now(UTC))
 
 
 # ---------------------------------------------------------------------------
@@ -165,33 +165,34 @@ class OutboxRelay:
                 await asyncio.sleep(self._poll_interval)
 
     async def _process_batch(self) -> int:
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                rows = await conn.fetch(self._FETCH_SQL, self._batch_size)
-                published = 0
-                for row in rows:
-                    try:
-                        payload_bytes = row["payload"].encode()
-                        key_bytes = row["message_id"].encode()
-                        await self._producer.send_and_wait(
-                            row["topic"],
-                            value=payload_bytes,
-                            key=key_bytes,
-                        )
-                        await conn.execute(
-                            self._MARK_PUBLISHED_SQL,
-                            datetime.now(timezone.utc),
-                            row["id"],
-                        )
-                        published += 1
-                        logger.debug(
-                            "Outbox published message_id=%s topic=%s",
-                            row["message_id"], row["topic"],
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.error(
-                            "Outbox failed to publish message_id=%s: %s",
-                            row["message_id"], exc,
-                        )
-                        await conn.execute(self._MARK_FAILED_SQL, row["id"])
-                return published
+        async with self._pool.acquire() as conn, conn.transaction():
+            rows = await conn.fetch(self._FETCH_SQL, self._batch_size)
+            published = 0
+            for row in rows:
+                try:
+                    payload_bytes = row["payload"].encode()
+                    key_bytes = row["message_id"].encode()
+                    await self._producer.send_and_wait(
+                        row["topic"],
+                        value=payload_bytes,
+                        key=key_bytes,
+                    )
+                    await conn.execute(
+                        self._MARK_PUBLISHED_SQL,
+                        datetime.now(UTC),
+                        row["id"],
+                    )
+                    published += 1
+                    logger.debug(
+                        "Outbox published message_id=%s topic=%s",
+                        row["message_id"],
+                        row["topic"],
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "Outbox failed to publish message_id=%s: %s",
+                        row["message_id"],
+                        exc,
+                    )
+                    await conn.execute(self._MARK_FAILED_SQL, row["id"])
+            return published

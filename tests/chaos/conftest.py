@@ -8,12 +8,11 @@ them fast and deterministic while still exercising real concurrency logic.
 
 from __future__ import annotations
 
-import pytest
 import fakeredis
 import fakeredis.aioredis
+import pytest
 
 from src.dedup import InMemoryDeduplicationStore, RedisDeduplicationStore
-from src.dedup.models import DeduplicationConfig
 
 
 @pytest.fixture

@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from src.consumer.dedup_consumer import DedupConsumer
-from src.dedup import InMemoryDeduplicationStore, RedisDeduplicationStore
+from src.dedup import InMemoryDeduplicationStore
 from src.dedup.models import DeduplicationConfig, StatusValue
 
 pytestmark = pytest.mark.chaos
@@ -178,7 +178,7 @@ class TestOrphanedProcessing:
 
         await store.claim("max-retry-msg")
         await store.mark_failed("max-retry-msg", error="err", attempts=1)
-        await store.claim("max-retry-msg")                    # attempt 2 — ok
+        await store.claim("max-retry-msg")  # attempt 2 — ok
         await store.mark_failed("max-retry-msg", error="err", attempts=2)
 
         # attempts == max_retries → should not re-claim
@@ -209,7 +209,6 @@ class TestStoreErrors:
         consumer.handle = AsyncMock(return_value="ok")
 
         import json
-        from unittest.mock import MagicMock
 
         record = MagicMock()
         record.value = json.dumps({"message_id": "err-msg-1"}).encode()
@@ -404,6 +403,4 @@ class TestRetryStorm:
             consumer_b._process_record(_make_record()),
         )
 
-        assert len(processed_by) == 1, (
-            f"Expected exactly one processor, got: {processed_by}"
-        )
+        assert len(processed_by) == 1, f"Expected exactly one processor, got: {processed_by}"

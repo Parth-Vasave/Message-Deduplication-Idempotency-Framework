@@ -85,8 +85,8 @@ class TestIdempotentDecorator:
         await do_work("msg-1", {"v": 99})
         result = await do_work("msg-1", {"v": 99})
 
-        assert call_count == 1           # only executed once
-        assert result == {"value": 99}   # cached result returned
+        assert call_count == 1  # only executed once
+        assert result == {"value": 99}  # cached result returned
 
     async def test_default_key_from_first_arg(self, store):
         @idempotent(store=store)

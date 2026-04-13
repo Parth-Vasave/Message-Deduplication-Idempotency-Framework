@@ -49,5 +49,6 @@ class DeduplicationStore(ABC):
     async def delete(self, message_id: str) -> None:
         """Remove the record — used in tests and manual remediation."""
 
+    @abstractmethod
     async def close(self) -> None:
         """Release any held resources (connections, pools, etc.)."""

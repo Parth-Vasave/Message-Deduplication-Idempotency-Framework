@@ -10,7 +10,6 @@ These tests verify behaviour that fakeredis approximates but does not guarantee:
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -139,17 +138,13 @@ class TestConcurrency:
         100 asyncio tasks all race to claim the same message_id.
         Exactly one must win — the rest must return False.
         """
-        results = await asyncio.gather(
-            *[redis_store.claim("race-msg-1") for _ in range(100)]
-        )
+        results = await asyncio.gather(*[redis_store.claim("race-msg-1") for _ in range(100)])
         assert results.count(True) == 1
         assert results.count(False) == 99
 
     async def test_independent_ids_all_succeed(self, redis_store):
         """100 different message IDs should all claim successfully."""
-        results = await asyncio.gather(
-            *[redis_store.claim(f"uniq-{i}") for i in range(100)]
-        )
+        results = await asyncio.gather(*[redis_store.claim(f"uniq-{i}") for i in range(100)])
         assert all(results)
 
     async def test_concurrent_claim_then_complete(self, redis_store):
@@ -157,9 +152,7 @@ class TestConcurrency:
         50 coroutines compete for the same key; the winner marks it COMPLETED.
         All subsequent get_status calls must return COMPLETED.
         """
-        claims = await asyncio.gather(
-            *[redis_store.claim("complete-race") for _ in range(50)]
-        )
+        claims = await asyncio.gather(*[redis_store.claim("complete-race") for _ in range(50)])
         winner_count = claims.count(True)
         assert winner_count == 1
 

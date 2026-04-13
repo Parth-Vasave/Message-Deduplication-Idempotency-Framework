@@ -11,6 +11,7 @@ Verifies:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
 from unittest.mock import AsyncMock
@@ -29,9 +30,7 @@ pytestmark = pytest.mark.integration
 
 async def _count(pool: Any, status: str) -> int:
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT COUNT(*) AS n FROM outbox WHERE status = $1", status
-        )
+        row = await conn.fetchrow("SELECT COUNT(*) AS n FROM outbox WHERE status = $1", status)
         return row["n"]
 
 
@@ -51,9 +50,8 @@ class TestOutboxWriterIntegration:
         writer = OutboxWriter()
         entry = OutboxEntry(topic="orders", message_id="int-out-1", payload={"order_id": 1})
 
-        async with pg_pool.acquire() as conn:
-            async with conn.transaction():
-                await writer.write(conn, entry)
+        async with pg_pool.acquire() as conn, conn.transaction():
+            await writer.write(conn, entry)
 
         rows = await _fetch_all(pg_pool)
         assert len(rows) == 1
@@ -67,10 +65,9 @@ class TestOutboxWriterIntegration:
         writer = OutboxWriter()
         entry = OutboxEntry(topic="orders", message_id="int-out-dup", payload={"v": 1})
 
-        async with pg_pool.acquire() as conn:
-            async with conn.transaction():
-                await writer.write(conn, entry)
-                await writer.write(conn, entry)  # duplicate
+        async with pg_pool.acquire() as conn, conn.transaction():
+            await writer.write(conn, entry)
+            await writer.write(conn, entry)  # duplicate
 
         rows = await _fetch_all(pg_pool)
         assert len(rows) == 1
@@ -78,13 +75,11 @@ class TestOutboxWriterIntegration:
     async def test_write_multiple_entries(self, pg_pool):
         writer = OutboxWriter()
         entries = [
-            OutboxEntry(topic="t", message_id=f"int-bulk-{i}", payload={"i": i})
-            for i in range(5)
+            OutboxEntry(topic="t", message_id=f"int-bulk-{i}", payload={"i": i}) for i in range(5)
         ]
-        async with pg_pool.acquire() as conn:
-            async with conn.transaction():
-                for e in entries:
-                    await writer.write(conn, e)
+        async with pg_pool.acquire() as conn, conn.transaction():
+            for e in entries:
+                await writer.write(conn, e)
 
         rows = await _fetch_all(pg_pool)
         assert len(rows) == 5
@@ -210,9 +205,9 @@ class TestOutboxRelayIntegration:
         )
 
         total_published = sum(results)
-        assert total_published == 10                     # all 10 rows published
-        assert len(set(publish_calls)) == 10             # no duplicates in call keys
-        assert len(publish_calls) == 10                  # each published exactly once
+        assert total_published == 10  # all 10 rows published
+        assert len(set(publish_calls)) == 10  # no duplicates in call keys
+        assert len(publish_calls) == 10  # each published exactly once
 
     async def test_relay_stop_halts_background_loop(self, pg_pool):
         producer = AsyncMock()
@@ -222,9 +217,7 @@ class TestOutboxRelayIntegration:
         await asyncio.sleep(0.2)
         await relay.stop()
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         assert relay._running is False

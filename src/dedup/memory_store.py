@@ -7,7 +7,7 @@ No TTL enforcement — records live until process exit or explicit delete().
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .models import DeduplicationConfig, ProcessingStatus, StatusValue
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class InMemoryDeduplicationStore(DeduplicationStore):
@@ -76,9 +76,7 @@ class InMemoryDeduplicationStore(DeduplicationStore):
         async with self._lock:
             record = self._store.get(message_id)
             if record is None:
-                logger.warning(
-                    "mark_failed called on missing record message_id=%s", message_id
-                )
+                logger.warning("mark_failed called on missing record message_id=%s", message_id)
                 return
             record.status = StatusValue.FAILED
             record.error = error
@@ -99,3 +97,6 @@ class InMemoryDeduplicationStore(DeduplicationStore):
     def clear(self) -> None:
         """Wipe all records — use between tests."""
         self._store.clear()
+
+    async def close(self) -> None:
+        """No-op: in-memory store holds no external resources."""

@@ -16,8 +16,8 @@ Usage::
 """
 
 import time
-from contextlib import contextmanager
 from collections.abc import Generator
+from contextlib import contextmanager
 
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 
@@ -134,9 +134,7 @@ class DeduplicationMetrics:
             yield
         finally:
             active_processing.labels(topic=topic).dec()
-            processing_duration_seconds.labels(topic=topic).observe(
-                time.perf_counter() - start
-            )
+            processing_duration_seconds.labels(topic=topic).observe(time.perf_counter() - start)
 
     @contextmanager
     def measure_store_op(self, operation: str) -> Generator[None, None, None]:

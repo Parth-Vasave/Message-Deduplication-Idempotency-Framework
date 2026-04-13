@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 
 class StatusValue(StrEnum):
     PROCESSING = "PROCESSING"
-    COMPLETED  = "COMPLETED"
-    FAILED     = "FAILED"
-    SKIPPED    = "SKIPPED"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
 
 
 class ProcessingStatus(BaseModel):
@@ -29,7 +29,7 @@ class ProcessingStatus(BaseModel):
 
 
 class DeduplicationConfig(BaseModel):
-    ttl_seconds: int = 86400          # 24 hours
+    ttl_seconds: int = 86400  # 24 hours
     max_retries: int = 3
     retry_backoff_ms: int = 500
     # If True, a FAILED status from a previous attempt is treated as

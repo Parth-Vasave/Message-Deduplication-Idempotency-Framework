@@ -16,11 +16,11 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.consumer.dedup_consumer import DedupConsumer, _extract_message_id
+from src.consumer.dedup_consumer import DedupConsumer
 from src.dedup import InMemoryDeduplicationStore
 from src.dedup.models import DeduplicationConfig, StatusValue
 from src.idempotency.guard import IdempotencyGuard, idempotent
@@ -123,7 +123,7 @@ class TestIntermittentFailures:
             nonlocal attempt
             attempt += 1
             if attempt < 3:
-                raise IOError(f"transient #{attempt}")
+                raise OSError(f"transient #{attempt}")
             return {"result": "ok"}
 
         store = InMemoryDeduplicationStore()
@@ -246,6 +246,7 @@ class TestDlqMisconfiguration:
         When no DLQ is configured, send_to_dlq must log a warning, not raise.
         """
         import logging
+
         store = InMemoryDeduplicationStore()
         consumer = DedupConsumer(
             topics=["t"],
@@ -261,8 +262,7 @@ class TestDlqMisconfiguration:
             await consumer._process_record(_json_record("no-dlq-msg-1"))
 
         # Should have logged about no DLQ
-        assert any("No DLQ configured" in r.message or "DLQ" in r.message
-                   for r in caplog.records)
+        assert any("No DLQ configured" in r.message or "DLQ" in r.message for r in caplog.records)
         # Offset should still be committed (message is dead, no point redelivering)
         consumer._consumer.commit.assert_called()
 

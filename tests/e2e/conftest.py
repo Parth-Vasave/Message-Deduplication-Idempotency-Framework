@@ -7,16 +7,13 @@ between tests using truncation and unique topic names.
 
 from __future__ import annotations
 
-import asyncio
-import pytest
 import asyncpg
-
+import pytest
 from testcontainers.kafka import KafkaContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from src.dedup import RedisDeduplicationStore
-from src.dedup.models import DeduplicationConfig
 
 # Re-use session-scoped container fixtures from integration conftest
 # (pytest discovers conftest.py fixtures transitively)

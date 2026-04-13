@@ -28,7 +28,6 @@ from structlog.types import EventDict, WrappedLogger
 
 from src.config import settings
 
-
 # ---------------------------------------------------------------------------
 # Custom processors
 # ---------------------------------------------------------------------------
@@ -42,9 +41,7 @@ def _drop_color_message_key(
     return event_dict
 
 
-def _add_app_context(
-    _logger: WrappedLogger, _method: str, event_dict: EventDict
-) -> EventDict:
+def _add_app_context(_logger: WrappedLogger, _method: str, event_dict: EventDict) -> EventDict:
     """Inject static application context into every log record."""
     event_dict.setdefault("app", "kafkadedup")
     return event_dict

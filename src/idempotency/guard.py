@@ -140,16 +140,12 @@ def idempotent(
 
             existing = await store.get_status(idempotency_key)
             if existing is not None and existing.status == StatusValue.COMPLETED:
-                logger.debug(
-                    "@idempotent: returning cached result key=%s", idempotency_key
-                )
+                logger.debug("@idempotent: returning cached result key=%s", idempotency_key)
                 return existing.result
 
             claimed = await store.claim(idempotency_key)
             if not claimed:
-                logger.debug(
-                    "@idempotent: duplicate in-flight, skipping key=%s", idempotency_key
-                )
+                logger.debug("@idempotent: duplicate in-flight, skipping key=%s", idempotency_key)
                 return None
 
             attempts = 1
@@ -165,11 +161,12 @@ def idempotent(
                     last_exc = exc
                     logger.warning(
                         "@idempotent: attempt %d/%d failed key=%s error=%s",
-                        attempts, _config.max_retries, idempotency_key, exc,
+                        attempts,
+                        _config.max_retries,
+                        idempotency_key,
+                        exc,
                     )
-                    await store.mark_failed(
-                        idempotency_key, error=str(exc), attempts=attempts
-                    )
+                    await store.mark_failed(idempotency_key, error=str(exc), attempts=attempts)
                     if attempts < _config.max_retries:
                         backoff = _config.retry_backoff_ms / 1000 * attempts
                         await asyncio.sleep(backoff)

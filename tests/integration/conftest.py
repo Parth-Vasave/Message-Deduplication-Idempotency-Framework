@@ -8,18 +8,13 @@ function scope so each test gets a clean slate.
 
 from __future__ import annotations
 
-import asyncio
-import pytest
 import asyncpg
-import fakeredis
-import fakeredis.aioredis
-
+import pytest
 from testcontainers.kafka import KafkaContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from src.dedup import RedisDeduplicationStore
-from src.dedup.models import DeduplicationConfig
 
 # ---------------------------------------------------------------------------
 # Redis

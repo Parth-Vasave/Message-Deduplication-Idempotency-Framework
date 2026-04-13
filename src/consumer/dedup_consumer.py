@@ -21,7 +21,8 @@ from aiokafka.structs import ConsumerRecord
 from src.config import settings
 from src.dedup.models import DeduplicationConfig
 from src.dedup.store import DeduplicationStore
-from src.metrics.dedup_metrics import DeduplicationMetrics, metrics as _default_metrics
+from src.metrics.dedup_metrics import DeduplicationMetrics
+from src.metrics.dedup_metrics import metrics as _default_metrics
 
 from .base import BaseConsumer
 
@@ -36,12 +37,13 @@ def _extract_message_id(record: ConsumerRecord) -> str | None:
 
     Returns None if neither is present.
     """
-    for key, value in (record.headers or []):
+    for key, value in record.headers or []:
         if key == "X-Message-Id" and value:
             return value.decode()
 
     # Attempt JSON decode — callers can override _parse_payload for other formats
     import json
+
     if not record.value:
         return None
     try:
@@ -102,7 +104,7 @@ class DedupConsumer(BaseConsumer):
             *self._topics,
             bootstrap_servers=self._bootstrap,
             group_id=self._group_id,
-            enable_auto_commit=False,   # manual commit after dedup
+            enable_auto_commit=False,  # manual commit after dedup
             auto_offset_reset="earliest",
             **self._kafka_kwargs,
         )
@@ -114,9 +116,7 @@ class DedupConsumer(BaseConsumer):
 
         await self._store.connect() if hasattr(self._store, "connect") else None  # type: ignore[attr-defined]
         self._running = True
-        logger.info(
-            "DedupConsumer started topics=%s group=%s", self._topics, self._group_id
-        )
+        logger.info("DedupConsumer started topics=%s group=%s", self._topics, self._group_id)
 
     async def stop(self) -> None:
         self._running = False
@@ -154,9 +154,10 @@ class DedupConsumer(BaseConsumer):
 
         if message_id is None:
             logger.warning(
-                "No message_id found — processing without dedup "
-                "topic=%s partition=%d offset=%d",
-                record.topic, record.partition, record.offset,
+                "No message_id found — processing without dedup topic=%s partition=%d offset=%d",
+                record.topic,
+                record.partition,
+                record.offset,
             )
             self._metrics.record_no_message_id(record.topic)
             await self._execute_and_commit(record, message_id=None)
@@ -189,9 +190,7 @@ class DedupConsumer(BaseConsumer):
         with self._metrics.measure_processing(record.topic):
             await self._execute_and_commit(record, message_id=message_id)
 
-    async def _execute_and_commit(
-        self, record: ConsumerRecord, message_id: str | None
-    ) -> None:
+    async def _execute_and_commit(self, record: ConsumerRecord, message_id: str | None) -> None:
         """Run handle(), update dedup state, and commit offset."""
         import json
 
@@ -214,7 +213,9 @@ class DedupConsumer(BaseConsumer):
                 self._metrics.record_processed(record.topic)
                 logger.info(
                     "Message processed message_id=%s topic=%s offset=%d",
-                    message_id, record.topic, record.offset,
+                    message_id,
+                    record.topic,
+                    record.offset,
                 )
                 return
 
@@ -222,14 +223,15 @@ class DedupConsumer(BaseConsumer):
                 last_exc = exc
                 logger.warning(
                     "handle() failed attempt=%d/%d message_id=%s error=%s",
-                    attempts, self._config.max_retries, message_id, exc,
+                    attempts,
+                    self._config.max_retries,
+                    message_id,
+                    exc,
                 )
                 self._metrics.record_error(record.topic, type(exc).__name__)
                 if message_id:
                     with self._metrics.measure_store_op("mark_failed"):
-                        await self._store.mark_failed(
-                            message_id, error=str(exc), attempts=attempts
-                        )
+                        await self._store.mark_failed(message_id, error=str(exc), attempts=attempts)
                 if attempts < self._config.max_retries:
                     backoff = self._config.retry_backoff_ms / 1000 * attempts
                     await asyncio.sleep(backoff)
@@ -242,9 +244,7 @@ class DedupConsumer(BaseConsumer):
                 attempts += 1
 
         # Exhausted retries → DLQ
-        logger.error(
-            "Message exhausted retries, sending to DLQ message_id=%s", message_id
-        )
+        logger.error("Message exhausted retries, sending to DLQ message_id=%s", message_id)
         self._metrics.record_dlq(record.topic)
         await self._send_to_dlq(record, error=str(last_exc))
         await self._commit(record)
@@ -257,17 +257,21 @@ class DedupConsumer(BaseConsumer):
         if not self._dlq_producer or not self._dlq_topic:
             logger.warning(
                 "No DLQ configured — dropping failed message topic=%s offset=%d",
-                record.topic, record.offset,
+                record.topic,
+                record.offset,
             )
             return
         import json
-        dlq_payload = json.dumps({
-            "original_topic": record.topic,
-            "original_offset": record.offset,
-            "original_partition": record.partition,
-            "original_value": record.value.decode(errors="replace") if record.value else None,
-            "error": error,
-        }).encode()
+
+        dlq_payload = json.dumps(
+            {
+                "original_topic": record.topic,
+                "original_offset": record.offset,
+                "original_partition": record.partition,
+                "original_value": record.value.decode(errors="replace") if record.value else None,
+                "error": error,
+            }
+        ).encode()
         await self._dlq_producer.send_and_wait(
             self._dlq_topic,
             value=dlq_payload,

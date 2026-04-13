@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     postgres_dsn: str = "postgresql://dedup:dedup_secret@localhost:5432/kafkadedup"
 
     # Deduplication
-    dedup_ttl_seconds: int = 86400       # 24 hours
+    dedup_ttl_seconds: int = 86400  # 24 hours
     dedup_max_retries: int = 3
     dedup_retry_backoff_ms: int = 500
 

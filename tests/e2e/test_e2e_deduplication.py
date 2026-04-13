@@ -18,6 +18,7 @@ Also verifies:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -26,9 +27,8 @@ from aiokafka import AIOKafkaConsumer as _AIOConsumer
 from aiokafka import AIOKafkaProducer
 
 from src.consumer.dedup_consumer import DedupConsumer
-from src.dedup.models import DeduplicationConfig, StatusValue
+from src.dedup.models import DeduplicationConfig
 from src.idempotency.outbox import OutboxEntry, OutboxRelay, OutboxWriter
-from src.metrics.dedup_metrics import DeduplicationMetrics
 
 pytestmark = pytest.mark.e2e
 
@@ -63,10 +63,8 @@ async def _run_consumer(consumer: DedupConsumer, timeout: float = 8.0) -> None:
         await asyncio.sleep(timeout)
         consumer._running = False
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
     finally:
         await consumer.stop()
 
@@ -127,9 +125,7 @@ class TestExactlyOnceGuarantee:
         order_count = await _count_orders(pool)
         assert order_count == 5
 
-    async def test_duplicates_not_inserted_twice(
-        self, e2e_bootstrap, e2e_redis_store, e2e_pg_pool
-    ):
+    async def test_duplicates_not_inserted_twice(self, e2e_bootstrap, e2e_redis_store, e2e_pg_pool):
         """
         Same message_id sent 5 times → exactly 1 order row.
         The dedup store (Redis) filters the first duplicate; the DB UNIQUE
@@ -157,7 +153,8 @@ class TestExactlyOnceGuarantee:
         )
 
         # Same message_id 5 times
-        messages = [{"message_id": "e2e-dup-order-1", "customer_id": "cust-dup", "amount": 99.0}] * 5
+        msg = {"message_id": "e2e-dup-order-1", "customer_id": "cust-dup", "amount": 99.0}
+        messages = [msg] * 5
         await _produce_batch(e2e_bootstrap, _BASE_TOPIC, messages)
         await asyncio.sleep(0.5)
         await _run_consumer(consumer, timeout=8.0)
@@ -196,11 +193,13 @@ class TestExactlyOnceGuarantee:
         for i in range(3):
             # Each unique message appears 3-4 times
             for _ in range(3 if i < 2 else 4):
-                messages.append({
-                    "message_id": f"e2e-mixed-{i}",
-                    "customer_id": f"cust-{i}",
-                    "amount": float(i + 1) * 5,
-                })
+                messages.append(
+                    {
+                        "message_id": f"e2e-mixed-{i}",
+                        "customer_id": f"cust-{i}",
+                        "amount": float(i + 1) * 5,
+                    }
+                )
 
         await _produce_batch(e2e_bootstrap, _BASE_TOPIC, messages)
         await asyncio.sleep(0.5)
@@ -263,7 +262,7 @@ class TestDlqRouting:
                     dlq_messages.append(json.loads(record.value))
                     if dlq_messages:
                         break
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             pass
         finally:
             await dlq_c.stop()
@@ -298,17 +297,16 @@ class TestOutboxPipeline:
 
         # Step 1: write 3 entries to outbox
         writer = OutboxWriter()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                for i in range(3):
-                    await writer.write(
-                        conn,
-                        OutboxEntry(
-                            topic=_OUTBOX_TOPIC,
-                            message_id=f"outbox-e2e-{i}",
-                            payload={"message_id": f"outbox-e2e-{i}", "seq": i},
-                        ),
-                    )
+        async with pool.acquire() as conn, conn.transaction():
+            for i in range(3):
+                await writer.write(
+                    conn,
+                    OutboxEntry(
+                        topic=_OUTBOX_TOPIC,
+                        message_id=f"outbox-e2e-{i}",
+                        payload={"message_id": f"outbox-e2e-{i}", "seq": i},
+                    ),
+                )
 
         # Step 2: run relay to publish to Kafka
         kafka_producer = AIOKafkaProducer(bootstrap_servers=e2e_bootstrap)
@@ -342,9 +340,7 @@ class TestOutboxPipeline:
 
 
 class TestMetrics:
-    async def test_duplicate_counter_increments(
-        self, e2e_bootstrap, e2e_redis_store
-    ):
+    async def test_duplicate_counter_increments(self, e2e_bootstrap, e2e_redis_store):
         """
         Produce 1 unique + 4 duplicates → dedup_messages_total{status='duplicate'}
         should increment by 4.
@@ -354,10 +350,13 @@ class TestMetrics:
         # Read baseline
         def _get_counter(status: str) -> float:
             try:
-                return REGISTRY.get_sample_value(
-                    "dedup_messages_total",
-                    labels={"topic": _BASE_TOPIC, "status": status},
-                ) or 0.0
+                return (
+                    REGISTRY.get_sample_value(
+                        "dedup_messages_total",
+                        labels={"topic": _BASE_TOPIC, "status": status},
+                    )
+                    or 0.0
+                )
             except Exception:
                 return 0.0
 
@@ -383,5 +382,5 @@ class TestMetrics:
         final_proc = _get_counter("processed")
         final_dup = _get_counter("duplicate")
 
-        assert (final_proc - baseline_proc) >= 1    # at least 1 processed
-        assert (final_dup - baseline_dup) >= 4      # at least 4 duplicates skipped
+        assert (final_proc - baseline_proc) >= 1  # at least 1 processed
+        assert (final_dup - baseline_dup) >= 4  # at least 4 duplicates skipped

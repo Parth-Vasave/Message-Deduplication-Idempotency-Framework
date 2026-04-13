@@ -1,8 +1,7 @@
 """Unit tests for DedupConsumer (no Kafka — uses mocks)."""
 
 import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -53,16 +52,19 @@ class TestExtractMessageId:
 
     def test_from_json_payload(self):
         import json
+
         record = _make_record(value=json.dumps({"message_id": "json-456"}).encode())
         assert _extract_message_id(record) == "json-456"
 
     def test_from_id_field(self):
         import json
+
         record = _make_record(value=json.dumps({"id": "id-789"}).encode())
         assert _extract_message_id(record) == "id-789"
 
     def test_header_takes_priority_over_payload(self):
         import json
+
         record = _make_record(
             value=json.dumps({"message_id": "payload-id"}).encode(),
             headers=[("X-Message-Id", b"header-id")],
@@ -89,9 +91,7 @@ class TestProcessRecord:
 
         consumer.handle = AsyncMock(return_value={"ok": True})
 
-        record = _make_record(
-            value=json.dumps({"message_id": "msg-1", "data": "x"}).encode()
-        )
+        record = _make_record(value=json.dumps({"message_id": "msg-1", "data": "x"}).encode())
         await consumer._process_record(record)
 
         consumer.handle.assert_called_once()
@@ -107,9 +107,7 @@ class TestProcessRecord:
         await store.mark_completed("msg-dup", result="prior")
 
         consumer.handle = AsyncMock()
-        record = _make_record(
-            value=json.dumps({"message_id": "msg-dup"}).encode()
-        )
+        record = _make_record(value=json.dumps({"message_id": "msg-dup"}).encode())
         await consumer._process_record(record)
 
         consumer.handle.assert_not_called()
@@ -117,6 +115,7 @@ class TestProcessRecord:
 
     async def test_handle_failure_marks_failed(self, consumer, store):
         import json
+
         from src.dedup.models import DeduplicationConfig
 
         consumer._config = DeduplicationConfig(max_retries=1, retry_backoff_ms=0)
@@ -124,9 +123,7 @@ class TestProcessRecord:
         consumer._dlq_producer = None
         consumer._dlq_topic = None
 
-        record = _make_record(
-            value=json.dumps({"message_id": "msg-err"}).encode()
-        )
+        record = _make_record(value=json.dumps({"message_id": "msg-err"}).encode())
         await consumer._process_record(record)
 
         status = await store.get_status("msg-err")
@@ -145,9 +142,7 @@ class TestProcessRecord:
         await store.mark_failed("msg-retry", error="transient", attempts=1)
 
         consumer.handle = AsyncMock(return_value={"retried": True})
-        record = _make_record(
-            value=json.dumps({"message_id": "msg-retry"}).encode()
-        )
+        record = _make_record(value=json.dumps({"message_id": "msg-retry"}).encode())
         await consumer._process_record(record)
 
         status = await store.get_status("msg-retry")
@@ -163,9 +158,7 @@ class TestProcessRecord:
         consumer._dlq_producer = dlq_producer
         consumer._dlq_topic = "test.dlq"
 
-        record = _make_record(
-            value=json.dumps({"message_id": "msg-dlq"}).encode()
-        )
+        record = _make_record(value=json.dumps({"message_id": "msg-dlq"}).encode())
         await consumer._process_record(record)
 
         dlq_producer.send_and_wait.assert_called_once()
@@ -182,7 +175,6 @@ class TestProcessRecord:
         consumer._dlq_producer = None
 
         closed = []
-        original_close = store.close
 
         async def track_close():
             closed.append(True)

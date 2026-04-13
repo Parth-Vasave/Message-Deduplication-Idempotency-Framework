@@ -10,16 +10,15 @@ These tests verify the end-to-end deduplication lifecycle:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 from aiokafka import AIOKafkaProducer
 
 from src.consumer.dedup_consumer import DedupConsumer
-from src.dedup import InMemoryDeduplicationStore, RedisDeduplicationStore
-from src.dedup.models import DeduplicationConfig, StatusValue
+from src.dedup.models import DeduplicationConfig
 
 pytestmark = pytest.mark.integration
 
@@ -58,10 +57,8 @@ async def _run_consumer(
         await asyncio.sleep(timeout)
         consumer._running = False
         run_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await run_task
-        except asyncio.CancelledError:
-            pass
     finally:
         await consumer.stop()
 
@@ -149,7 +146,7 @@ class TestDedupConsumerIntegration:
         await _run_consumer(consumer, timeout=6.0)
 
         # Verify DLQ message arrived
-        dlq_consumer = AIOKafkaProducer.__new__(AIOKafkaProducer)
+        AIOKafkaProducer.__new__(AIOKafkaProducer)
         from aiokafka import AIOKafkaConsumer as _AIOConsumer
 
         dlq_c = _AIOConsumer(
@@ -164,7 +161,7 @@ class TestDedupConsumerIntegration:
             async for record in dlq_c:
                 dlq_received.append(record.value)
                 break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         finally:
             await dlq_c.stop()
@@ -195,7 +192,7 @@ class TestDedupConsumerIntegration:
             group_id="integration-test-restart",
         )
         await _run_consumer(consumer1, timeout=4.0)
-        first_run_count = len(processed)
+        len(processed)
 
         # Second run with same consumer group and same store
         consumer2 = _TrackingConsumer(

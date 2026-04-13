@@ -2,12 +2,12 @@
 Unit tests for RedisDeduplicationStore using fakeredis (no real Redis needed).
 """
 
-import pytest
 import fakeredis
 import fakeredis.aioredis
+import pytest
 
 from src.dedup import RedisDeduplicationStore
-from src.dedup.models import DeduplicationConfig, StatusValue
+from src.dedup.models import StatusValue
 
 
 @pytest.fixture
@@ -24,6 +24,7 @@ async def store() -> RedisDeduplicationStore:
 # ---------------------------------------------------------------------------
 # claim()
 # ---------------------------------------------------------------------------
+
 
 class TestClaim:
     async def test_first_claim_succeeds(self, store):
@@ -49,6 +50,7 @@ class TestClaim:
 # is_duplicate()
 # ---------------------------------------------------------------------------
 
+
 class TestIsDuplicate:
     async def test_unknown_not_duplicate(self, store):
         assert await store.is_duplicate("ghost") is False
@@ -61,6 +63,7 @@ class TestIsDuplicate:
 # ---------------------------------------------------------------------------
 # mark_completed()
 # ---------------------------------------------------------------------------
+
 
 class TestMarkCompleted:
     async def test_transitions_to_completed(self, store):
@@ -81,14 +84,15 @@ class TestMarkCompleted:
         """Calling mark_completed twice should not raise — second call is ignored."""
         await store.claim("msg-1")
         await store.mark_completed("msg-1", result="first")
-        await store.mark_completed("msg-1", result="second")   # Lua returns 0, no raise
+        await store.mark_completed("msg-1", result="second")  # Lua returns 0, no raise
         status = await store.get_status("msg-1")
-        assert status.result == "first"   # original result preserved
+        assert status.result == "first"  # original result preserved
 
 
 # ---------------------------------------------------------------------------
 # mark_failed()
 # ---------------------------------------------------------------------------
+
 
 class TestMarkFailed:
     async def test_transitions_to_failed(self, store):
@@ -104,12 +108,13 @@ class TestMarkFailed:
         await store.mark_completed("msg-1", result="done")
         await store.mark_failed("msg-1", error="too late", attempts=2)
         status = await store.get_status("msg-1")
-        assert status.status == StatusValue.COMPLETED   # unchanged
+        assert status.status == StatusValue.COMPLETED  # unchanged
 
 
 # ---------------------------------------------------------------------------
 # get_status()
 # ---------------------------------------------------------------------------
+
 
 class TestGetStatus:
     async def test_none_for_unknown_id(self, store):
@@ -127,6 +132,7 @@ class TestGetStatus:
 # delete()
 # ---------------------------------------------------------------------------
 
+
 class TestDelete:
     async def test_delete_removes_key(self, store):
         await store.claim("msg-1")
@@ -140,6 +146,7 @@ class TestDelete:
 # ---------------------------------------------------------------------------
 # TTL (fakeredis does not enforce TTL by default, but we verify the key is set)
 # ---------------------------------------------------------------------------
+
 
 class TestTTL:
     async def test_claim_sets_ttl(self, store):

@@ -1,6 +1,7 @@
 """Unit tests for InMemoryDeduplicationStore."""
 
 import asyncio
+
 import pytest
 
 from src.dedup import InMemoryDeduplicationStore
@@ -15,6 +16,7 @@ def store() -> InMemoryDeduplicationStore:
 # ---------------------------------------------------------------------------
 # claim()
 # ---------------------------------------------------------------------------
+
 
 class TestClaim:
     async def test_first_claim_succeeds(self, store):
@@ -38,9 +40,7 @@ class TestClaim:
 
     async def test_concurrent_claims_only_one_wins(self, store):
         """10 coroutines racing to claim the same id — exactly 1 should win."""
-        results = await asyncio.gather(
-            *[store.claim("msg-race") for _ in range(10)]
-        )
+        results = await asyncio.gather(*[store.claim("msg-race") for _ in range(10)])
         assert results.count(True) == 1
         assert results.count(False) == 9
 
@@ -48,6 +48,7 @@ class TestClaim:
 # ---------------------------------------------------------------------------
 # is_duplicate()
 # ---------------------------------------------------------------------------
+
 
 class TestIsDuplicate:
     async def test_unknown_id_is_not_duplicate(self, store):
@@ -66,6 +67,7 @@ class TestIsDuplicate:
 # ---------------------------------------------------------------------------
 # mark_completed()
 # ---------------------------------------------------------------------------
+
 
 class TestMarkCompleted:
     async def test_transitions_to_completed(self, store):
@@ -92,6 +94,7 @@ class TestMarkCompleted:
 # mark_failed()
 # ---------------------------------------------------------------------------
 
+
 class TestMarkFailed:
     async def test_transitions_to_failed(self, store):
         await store.claim("msg-1")
@@ -113,6 +116,7 @@ class TestMarkFailed:
 # Retry after failure
 # ---------------------------------------------------------------------------
 
+
 class TestRetryAfterFailure:
     async def test_failed_message_can_be_reclaimed(self, store):
         """A FAILED message should be re-claimable (retry_failed=True by default)."""
@@ -132,7 +136,7 @@ class TestRetryAfterFailure:
 
         await store.claim("msg-1")
         await store.mark_failed("msg-1", error="err", attempts=1)
-        await store.claim("msg-1")   # retry 1 — should succeed
+        await store.claim("msg-1")  # retry 1 — should succeed
         await store.mark_failed("msg-1", error="err", attempts=2)
 
         # attempts == max_retries, should not re-claim
@@ -149,6 +153,7 @@ class TestRetryAfterFailure:
 # ---------------------------------------------------------------------------
 # delete() / size()
 # ---------------------------------------------------------------------------
+
 
 class TestDelete:
     async def test_delete_removes_record(self, store):

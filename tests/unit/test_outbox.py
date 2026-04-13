@@ -1,15 +1,12 @@
 """Unit tests for OutboxWriter and OutboxRelay."""
 
 import asyncio
+import contextlib
 import json
-from datetime import timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from src.idempotency.outbox import OutboxEntry, OutboxRelay, OutboxWriter
-
 
 # ---------------------------------------------------------------------------
 # OutboxEntry
@@ -44,8 +41,8 @@ class TestOutboxWriter:
 
         conn.execute.assert_called_once()
         args = conn.execute.call_args[0]
-        assert args[1] == "orders"          # topic
-        assert args[2] == "msg-1"           # message_id
+        assert args[1] == "orders"  # topic
+        assert args[2] == "msg-1"  # message_id
         assert json.loads(args[3]) == {"order_id": 1}  # payload JSON
 
     async def test_write_passes_created_at(self):
@@ -108,7 +105,7 @@ class TestOutboxRelay:
 
     async def test_marks_failed_on_producer_error(self):
         rows = [
-            {"id": 7, "topic": "payments", "message_id": "pay-7", "payload": '{}'},
+            {"id": 7, "topic": "payments", "message_id": "pay-7", "payload": "{}"},
         ]
         pool, conn = _make_pool(rows)
         producer = AsyncMock()
@@ -141,10 +138,8 @@ class TestOutboxRelay:
         await asyncio.sleep(0.05)
         await relay.stop()
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         assert relay._running is False
 
     async def test_publishes_multiple_rows(self):
