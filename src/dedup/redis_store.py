@@ -83,7 +83,7 @@ class RedisDeduplicationStore(DeduplicationStore):
         config: DeduplicationConfig | None = None,
         **redis_kwargs: Any,
     ) -> "RedisDeduplicationStore":
-        client: "Redis[Any]" = aioredis.from_url(url, decode_responses=True, **redis_kwargs)
+        client: Redis[Any] = aioredis.from_url(url, decode_responses=True, **redis_kwargs)
         return cls(client, config)
 
     async def connect(self) -> None:
