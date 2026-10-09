@@ -27,7 +27,11 @@ async def fake_redis_store() -> RedisDeduplicationStore:
     Tests atomicity of Lua scripts without a real Redis daemon.
     """
     server = fakeredis.FakeServer(version=(7, 2))
-    client = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    # redis-py >= 8 caps the pool at 100 connections and raises MaxConnectionsError
+    # instead of waiting; size it above the largest thundering-herd fan-out (500).
+    client = fakeredis.aioredis.FakeRedis(
+        server=server, decode_responses=True, max_connections=1000
+    )
     store = RedisDeduplicationStore(client)
     await store.connect()
     yield store

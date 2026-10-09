@@ -5,8 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kafkadedup"
 version = "0.1.0"
-description = "Kafka message deduplication and idempotency framework"
+description = "Exactly-once Kafka message processing for Python: Redis-backed deduplication, idempotency guards, and a transactional outbox"
 requires-python = ">=3.11"
+readme = "README.md"
+keywords = [
+    "kafka",
+    "redis",
+    "idempotency",
+    "deduplication",
+    "exactly-once",
+    "transactional-outbox",
+    "asyncio",
+    "prometheus",
+    "kubernetes",
+]
 dependencies = [
     "aiokafka>=0.10.0",
     "redis[hiredis]>=5.0.0",

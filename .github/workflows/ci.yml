@@ -80,8 +80,10 @@ jobs:
 
       - name: Run integration tests
         run: |
+          # The coverage gate in pyproject addopts applies to the unit job only.
           pytest tests/integration \
             -m integration \
+            --no-cov \
             --tb=short \
             -v
         timeout-minutes: 10
