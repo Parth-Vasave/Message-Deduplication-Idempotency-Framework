@@ -51,7 +51,7 @@ spec:
           command:
             - python
             - -m
-            - src.consumer.dedup_consumer
+            - src.consumer
           envFrom:
             - configMapRef:
                 name: kafkadedup-config
