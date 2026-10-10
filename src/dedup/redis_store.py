@@ -3,8 +3,11 @@ Redis-backed DeduplicationStore.
 
 Atomicity strategy
 ------------------
-`claim()` uses a single Redis SET NX PX command which is atomic by design —
-no Lua script needed for the initial claim.  `mark_completed` and
+`claim()` runs as a Lua script, so the read-check-write happens atomically on
+the server.  It succeeds when the key is missing, when the record is FAILED and
+still has retries left, or when the record is PROCESSING but its lease has
+expired (the previous owner crashed).  Lease times come from Redis' own clock
+(TIME), so clock skew between consumers doesn't matter.  `mark_completed` and
 `mark_failed` use a Lua script that guards against overwriting a COMPLETED
 record with a FAILED one (or vice-versa), preventing status corruption under
 concurrent retries.
@@ -27,6 +30,44 @@ logger = logging.getLogger(__name__)
 # Lua scripts
 # ---------------------------------------------------------------------------
 
+_LUA_CLAIM = """
+local key          = KEYS[1]
+local message_id   = ARGV[1]
+local ttl_ms       = tonumber(ARGV[2])
+local lease_ms     = tonumber(ARGV[3])
+local max_retries  = tonumber(ARGV[4])
+local retry_failed = ARGV[5] == '1'
+local now_iso      = ARGV[6]
+local t      = redis.call('TIME')
+local now_ms = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+
+local raw = redis.call('GET', key)
+if not raw then
+    local rec = {
+        message_id = message_id, status = 'PROCESSING', attempts = 1,
+        created_at = now_iso, updated_at = now_iso, lease_until_ms = now_ms + lease_ms,
+    }
+    redis.call('SET', key, cjson.encode(rec), 'PX', ttl_ms)
+    return 1
+end
+
+local rec      = cjson.decode(raw)
+local attempts = tonumber(rec['attempts']) or 1
+local lease    = tonumber(rec['lease_until_ms'])
+local retryable = rec['status'] == 'FAILED' and retry_failed and attempts < max_retries
+local orphaned  = rec['status'] == 'PROCESSING' and lease ~= nil and lease <= now_ms
+if not (retryable or orphaned) then
+    return 0
+end
+rec['status']         = 'PROCESSING'
+rec['attempts']       = attempts + 1
+rec['error']          = nil
+rec['updated_at']     = now_iso
+rec['lease_until_ms'] = now_ms + lease_ms
+redis.call('SET', key, cjson.encode(rec), 'KEEPTTL')
+return 1
+"""
+
 # Update status only if the key exists AND the current status is PROCESSING.
 # This prevents a late retry from overwriting a completed record.
 _LUA_UPDATE_STATUS = """
@@ -44,6 +85,7 @@ rec['updated_at'] = ARGV[2]
 if ARGV[3] ~= '' then rec['result'] = cjson.decode(ARGV[3]) end
 if ARGV[4] ~= '' then rec['error']  = ARGV[4]               end
 if ARGV[5] ~= '' then rec['attempts'] = tonumber(ARGV[5])   end
+rec['lease_until_ms'] = nil
 redis.call('SET', key, cjson.encode(rec), 'KEEPTTL')
 return 1               -- success
 """
@@ -96,27 +138,22 @@ class RedisDeduplicationStore(DeduplicationStore):
 
     async def claim(self, message_id: str) -> bool:
         """
-        Atomically set dedup:{message_id} = PROCESSING if it doesn't exist.
-        Redis SET NX is O(1) and guaranteed atomic.
+        Atomically set dedup:{message_id} = PROCESSING if it is claimable:
+        missing, FAILED with retries left, or PROCESSING with an expired lease.
 
         Returns True if this caller won the claim.
         """
-        key = _redis_key(message_id)
-        now = _now_iso()
-        record = json.dumps(
-            {
-                "message_id": message_id,
-                "status": StatusValue.PROCESSING,
-                "attempts": 1,
-                "result": None,
-                "error": None,
-                "created_at": now,
-                "updated_at": now,
-            }
+        claimed = await self._client.eval(  # type: ignore[no-untyped-call]
+            _LUA_CLAIM,
+            1,
+            _redis_key(message_id),
+            message_id,
+            self._config.ttl_seconds * 1000,
+            self._config.processing_timeout_seconds * 1000,
+            self._config.max_retries,
+            "1" if self._config.retry_failed else "0",
+            _now_iso(),
         )
-        # SET key value NX PX milliseconds — atomic, no race condition
-        ttl_ms = self._config.ttl_seconds * 1000
-        claimed = await self._client.set(key, record, nx=True, px=ttl_ms)
         if claimed:
             logger.debug("Claimed message_id=%s", message_id)
         else:
@@ -153,6 +190,9 @@ class RedisDeduplicationStore(DeduplicationStore):
         if raw is None:
             return None
         data = json.loads(raw)
+        lease_ms = data.pop("lease_until_ms", None)
+        if lease_ms is not None:
+            data["lease_expires_at"] = datetime.fromtimestamp(lease_ms / 1000, UTC)
         return ProcessingStatus(**data)
 
     async def delete(self, message_id: str) -> None:

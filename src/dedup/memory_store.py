@@ -3,11 +3,12 @@ In-memory DeduplicationStore — for local development and unit tests.
 
 Thread-safe via asyncio.Lock (single event loop assumed).
 No TTL enforcement — records live until process exit or explicit delete().
+The PROCESSING lease (processing_timeout_seconds) is enforced, matching Redis.
 """
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .models import DeduplicationConfig, ProcessingStatus, StatusValue
@@ -28,22 +29,32 @@ class InMemoryDeduplicationStore(DeduplicationStore):
 
     async def claim(self, message_id: str) -> bool:
         async with self._lock:
+            now = _now()
+            lease_expires_at = now + timedelta(seconds=self._config.processing_timeout_seconds)
             if message_id in self._store:
                 existing = self._store[message_id]
                 # Allow re-claim if previous attempt failed and retry_failed is on
-                if (
+                retryable = (
                     existing.is_failed()
                     and self._config.retry_failed
                     and existing.attempts < self._config.max_retries
-                ):
+                )
+                # ...or if the previous owner crashed and its lease ran out
+                orphaned = (
+                    existing.status == StatusValue.PROCESSING
+                    and existing.lease_expires_at is not None
+                    and existing.lease_expires_at <= now
+                )
+                if retryable or orphaned:
                     self._store[message_id] = ProcessingStatus(
                         message_id=message_id,
                         status=StatusValue.PROCESSING,
                         attempts=existing.attempts + 1,
+                        lease_expires_at=lease_expires_at,
                         created_at=existing.created_at,
-                        updated_at=_now(),
+                        updated_at=now,
                     )
-                    logger.debug("Re-claimed for retry message_id=%s", message_id)
+                    logger.debug("Re-claimed message_id=%s orphaned=%s", message_id, orphaned)
                     return True
                 logger.debug("Duplicate detected message_id=%s", message_id)
                 return False
@@ -51,8 +62,9 @@ class InMemoryDeduplicationStore(DeduplicationStore):
             self._store[message_id] = ProcessingStatus(
                 message_id=message_id,
                 status=StatusValue.PROCESSING,
-                created_at=_now(),
-                updated_at=_now(),
+                lease_expires_at=lease_expires_at,
+                created_at=now,
+                updated_at=now,
             )
             logger.debug("Claimed message_id=%s", message_id)
             return True
@@ -70,6 +82,7 @@ class InMemoryDeduplicationStore(DeduplicationStore):
                 return
             record.status = StatusValue.COMPLETED
             record.result = result
+            record.lease_expires_at = None
             record.updated_at = _now()
 
     async def mark_failed(self, message_id: str, error: str, attempts: int = 1) -> None:
@@ -81,6 +94,7 @@ class InMemoryDeduplicationStore(DeduplicationStore):
             record.status = StatusValue.FAILED
             record.error = error
             record.attempts = attempts
+            record.lease_expires_at = None
             record.updated_at = _now()
 
     async def get_status(self, message_id: str) -> ProcessingStatus | None:
