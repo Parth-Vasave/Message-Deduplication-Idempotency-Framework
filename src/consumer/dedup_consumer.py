@@ -4,11 +4,12 @@ DedupConsumer — aiokafka consumer with full deduplication lifecycle.
 Lifecycle per message:
   1. Receive message from Kafka (poll)
   2. Extract message_id (from header "X-Message-Id" or payload["message_id"])
-  3. is_duplicate? → YES: skip, commit offset
-  4. claim() atomically (SET NX)
-  5. Execute handle() (your business logic)
-  6. mark_completed(result) → commit offset
-  7. On error → mark_failed() → retry / send to DLQ
+  3. claim() atomically — the store decides whether the message is new,
+     a retriable FAILED record, or an orphaned PROCESSING record whose lease
+     expired.  Not claimed → skip as duplicate, commit offset
+  4. Execute handle() (your business logic)
+  5. mark_completed(result) → commit offset
+  6. On error → mark_failed() → retry / send to DLQ
 """
 
 import asyncio
@@ -19,7 +20,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.structs import ConsumerRecord
 
 from src.config import settings
-from src.dedup.models import DeduplicationConfig
+from src.dedup.models import DeduplicationConfig, StatusValue
 from src.dedup.store import DeduplicationStore
 from src.metrics.dedup_metrics import DeduplicationMetrics
 from src.metrics.dedup_metrics import metrics as _default_metrics
@@ -164,27 +165,18 @@ class DedupConsumer(BaseConsumer):
             await self._execute_and_commit(record, message_id=None)
             return
 
-        # Step 3: duplicate check
-        with self._metrics.measure_store_op("is_duplicate"):
-            is_dup = await self._store.is_duplicate(message_id)
-        if is_dup:
-            with self._metrics.measure_store_op("get_status"):
-                existing = await self._store.get_status(message_id)
-            # Allow retry if previous attempt failed and retry_failed is on
-            if existing and existing.is_failed() and self._config.retry_failed:
-                logger.info("Retrying failed message message_id=%s", message_id)
-            else:
-                logger.info("Skipping duplicate message_id=%s", message_id)
-                self._metrics.record_duplicate(record.topic)
-                await self._commit(record)
-                return
-
-        # Step 4: atomic claim
+        # Step 3: atomic claim
         with self._metrics.measure_store_op("claim"):
             claimed = await self._store.claim(message_id)
         if not claimed:
-            logger.info("Lost claim race — skipping message_id=%s", message_id)
-            self._metrics.record_claim_lost(record.topic)
+            with self._metrics.measure_store_op("get_status"):
+                existing = await self._store.get_status(message_id)
+            if existing is not None and existing.status == StatusValue.PROCESSING:
+                logger.info("In flight elsewhere — skipping message_id=%s", message_id)
+                self._metrics.record_claim_lost(record.topic)
+            else:
+                logger.info("Skipping duplicate message_id=%s", message_id)
+                self._metrics.record_duplicate(record.topic)
             await self._commit(record)
             return
 
@@ -206,20 +198,6 @@ class DedupConsumer(BaseConsumer):
         while attempts <= self._config.max_retries:
             try:
                 result = await self.handle(payload)
-                # Step 6: mark completed and commit
-                if message_id:
-                    with self._metrics.measure_store_op("mark_completed"):
-                        await self._store.mark_completed(message_id, result=result)
-                await self._commit(record)
-                self._metrics.record_processed(record.topic)
-                logger.info(
-                    "Message processed message_id=%s topic=%s offset=%d",
-                    message_id,
-                    record.topic,
-                    record.offset,
-                )
-                return
-
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 logger.warning(
@@ -243,12 +221,43 @@ class DedupConsumer(BaseConsumer):
                         if not reclaimed:
                             break
                 attempts += 1
+                continue
+
+            # Step 5: mark completed and commit.  Kept outside the try above so
+            # a store failure here is never mistaken for a handler failure —
+            # that would re-run handle() and repeat its side effects.
+            await self._complete(record, message_id, result)
+            return
 
         # Exhausted retries → DLQ
         logger.error("Message exhausted retries, sending to DLQ message_id=%s", message_id)
         self._metrics.record_dlq(record.topic)
         await self._send_to_dlq(record, error=str(last_exc))
         await self._commit(record)
+
+    async def _complete(self, record: ConsumerRecord, message_id: str | None, result: Any) -> None:
+        if message_id:
+            try:
+                with self._metrics.measure_store_op("mark_completed"):
+                    await self._store.mark_completed(message_id, result=result)
+            except Exception as exc:  # noqa: BLE001
+                # handle() already succeeded.  Commit anyway: the record stays
+                # PROCESSING until its lease expires, which is safer than
+                # running the side effects a second time.
+                logger.error(
+                    "mark_completed failed after handle() succeeded message_id=%s error=%s",
+                    message_id,
+                    exc,
+                )
+                self._metrics.record_error(record.topic, type(exc).__name__)
+        await self._commit(record)
+        self._metrics.record_processed(record.topic)
+        logger.info(
+            "Message processed message_id=%s topic=%s offset=%d",
+            message_id,
+            record.topic,
+            record.offset,
+        )
 
     async def _commit(self, record: ConsumerRecord) -> None:
         if self._consumer:

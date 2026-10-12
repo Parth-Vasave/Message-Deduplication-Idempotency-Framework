@@ -35,7 +35,8 @@ Kafka delivers at least once, so network hiccups, broker failovers and consumer 
 
 - **`DedupConsumer`** — an `aiokafka` consumer that runs the full claim → handle → complete → commit lifecycle, with retries, backoff and a dead-letter queue (DLQ).
 - **Pluggable stores** — `RedisDeduplicationStore` for production, `InMemoryDeduplicationStore` for development and tests, or your own `DeduplicationStore` implementation.
-- **Atomic claims** — Redis `SET NX PX` guarantees that exactly one consumer wins a message, even across instances.
+- **Atomic claims** — a server-side Redis Lua script guarantees that exactly one consumer wins a message, even across instances.
+- **Crash recovery** — a `PROCESSING` claim is a lease. If its consumer dies mid-message, the message becomes claimable again once the lease expires, rather than being blocked for the whole TTL.
 - **Guarded state transitions** — a Lua script stops a late retry from overwriting a `COMPLETED` record.
 - **`IdempotencyGuard` and `@idempotent`** — make any async code idempotent, with or without Kafka.
 - **Transactional outbox** — `OutboxWriter` and `OutboxRelay` for atomic "write to the DB and publish to Kafka".
@@ -53,10 +54,10 @@ Kafka Topic
 DedupConsumer
     |
     |-- Extract message_id (X-Message-Id header, or payload "message_id" / "id")
-    |-- is_duplicate?
-    |       |-- YES, COMPLETED/PROCESSING --> skip, commit offset
-    |       |-- YES, FAILED (retry_failed) --> fall through and retry
-    |       |-- NO  --> claim atomically (Redis SET NX PX)
+    |-- claim atomically (Redis Lua script)
+    |       |-- claimable: new, FAILED with retries left (retry_failed),
+    |       |              or PROCESSING with an expired lease --> continue
+    |       |-- otherwise: COMPLETED, or PROCESSING with a live lease --> skip, commit offset
     |
     |-- handle(payload)                      <-- your business logic
     |
@@ -65,7 +66,7 @@ DedupConsumer
     |                                     \--> DLQ topic --> commit offset
 ```
 
-Redis is the single source of truth for message state. Claims are a single atomic `SET NX PX` command, and status transitions run as a Lua script on the server, so concurrent consumer instances can't race each other.
+Redis is the single source of truth for message state. Claims and status transitions run as Lua scripts on the server, so concurrent consumer instances can't race each other.
 
 ---
 
@@ -99,14 +100,18 @@ TTL:       86400 seconds (24 hours, configurable)
                                               \--> DLQ
 ```
 
-- `PROCESSING` — a consumer has claimed the message, so no other instance will process it.
+- `PROCESSING` — a consumer has claimed the message, so no other instance will process it until the claim's lease (`processing_timeout_seconds`) expires. An expired lease means the owner crashed, and the message can be claimed again.
 - `COMPLETED` — the business logic succeeded and its result is stored. This state is terminal.
 - `FAILED` — the handler raised an exception. The message can be retried up to `max_retries` times.
 - `SKIPPED` — terminal marker for messages that were deliberately not processed.
 
 ### Atomic Claim
 
-`claim()` sends one `SET dedup:{id} <record> NX PX <ttl>` command. Redis runs single commands atomically, so when two consumers race on the same `message_id`, only one of them can win. `mark_completed()` and `mark_failed()` use a Lua script that changes the status only while the record is still `PROCESSING`, which stops a late retry from overwriting a `COMPLETED` result.
+`claim()` runs a Lua script against `dedup:{id}`. It succeeds when the key is missing, when the record is `FAILED` and still has retries left, or when the record is `PROCESSING` and its lease has expired. Redis runs scripts atomically, so when two consumers race on the same `message_id`, only one of them can win. Lease times come from the Redis server clock (`TIME`), so clock skew between consumers doesn't matter.
+
+If `handle()` succeeds but `mark_completed()` then fails (for example, Redis is unreachable or the result can't be JSON-serialised), the consumer logs the error and commits the offset anyway. It never re-runs `handle()`, because that would repeat the side effects. `@idempotent` behaves the same way.
+
+`mark_completed()` and `mark_failed()` use a Lua script that changes the status only while the record is still `PROCESSING`, which stops a late retry from overwriting a `COMPLETED` result.
 
 ---
 
@@ -122,6 +127,7 @@ Message-Deduplication-Idempotency-Framework/
 │   │   └── models.py           # ProcessingStatus, StatusValue, DeduplicationConfig
 │   ├── consumer/
 │   │   ├── base.py             # BaseConsumer (abstract)
+│   │   ├── __main__.py         # `python -m src.consumer` entrypoint
 │   │   ├── dedup_consumer.py   # DedupConsumer — full dedup lifecycle
 │   │   └── handlers/           # Example handlers (user-owned stubs)
 │   │       ├── order_handler.py
@@ -224,11 +230,13 @@ pip install -e ".[dev]"
 
 ### 5. Run a consumer
 
-The framework is a library, so you run your own consumer script. See [Usage](#usage) for a complete example.
+To run the bundled order, payment and shipment handlers (configured from the environment variables below, with metrics served on `:9090`):
 
 ```bash
-python my_consumer.py
+python -m src.consumer
 ```
+
+This is also the command that the Kubernetes consumer deployment runs. For your own handlers, write a consumer script. See [Usage](#usage) for a complete example.
 
 ---
 
@@ -245,6 +253,7 @@ Settings come from environment variables or a `.env` file, through Pydantic Sett
 | `DEDUP_TTL_SECONDS` | `86400` | How long dedup records are retained (seconds) |
 | `DEDUP_MAX_RETRIES` | `3` | Max attempts before sending to the DLQ |
 | `DEDUP_RETRY_BACKOFF_MS` | `500` | Base backoff between retries (multiplied by attempt number) |
+| `DEDUP_PROCESSING_TIMEOUT_SECONDS` | `300` | Lease on a `PROCESSING` claim. After it expires, a crashed consumer's message can be claimed again. Set it longer than your slowest `handle()` |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
 You can also set dedup behaviour per consumer or store with `DeduplicationConfig`:
@@ -257,6 +266,7 @@ config = DeduplicationConfig(
     max_retries=3,
     retry_backoff_ms=500,
     retry_failed=True,   # treat a previous FAILED status as retriable, not a duplicate
+    processing_timeout_seconds=300,   # lease before a crashed claim can be retried
 )
 ```
 

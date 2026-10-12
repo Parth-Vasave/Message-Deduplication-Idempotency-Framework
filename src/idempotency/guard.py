@@ -155,8 +155,6 @@ def idempotent(
             while attempts <= _config.max_retries:
                 try:
                     result = await func(*args, **kwargs)
-                    await store.mark_completed(idempotency_key, result=result)
-                    return result
                 except Exception as exc:  # noqa: BLE001
                     last_exc = exc
                     logger.warning(
@@ -175,6 +173,18 @@ def idempotent(
                         if not reclaimed:
                             break
                     attempts += 1
+                    continue
+
+                # Outside the try: a store error must not re-run func().
+                try:
+                    await store.mark_completed(idempotency_key, result=result)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "@idempotent: mark_completed failed after success key=%s error=%s",
+                        idempotency_key,
+                        exc,
+                    )
+                return result
 
             raise last_exc  # type: ignore[misc]
 

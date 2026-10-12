@@ -16,6 +16,7 @@ data:
   DEDUP_TTL_SECONDS: "86400"       # 24 h
   DEDUP_MAX_RETRIES: "3"
   DEDUP_RETRY_BACKOFF_MS: "500"
+  DEDUP_PROCESSING_TIMEOUT_SECONDS: "300"   # lease before a crashed claim can be retried
 
   # Observability
   LOG_LEVEL: "INFO"
